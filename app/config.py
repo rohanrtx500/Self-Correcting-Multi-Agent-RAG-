@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     LOG_LEVEL: str = "INFO"
+    BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     # Pydantic Settings Config
     model_config = SettingsConfigDict(

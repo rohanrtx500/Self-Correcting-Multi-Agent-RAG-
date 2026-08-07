@@ -26,7 +26,12 @@ def get_embeddings() -> Embeddings:
             model=settings.OLLAMA_MODEL,
         )
 
-    if provider == "openai" and settings.OPENAI_API_KEY and "your-openai-api-key" not in settings.OPENAI_API_KEY and settings.OPENAI_API_KEY != "mock-openai-key":
+    if (
+        provider == "openai"
+        and settings.OPENAI_API_KEY
+        and "your-openai-api-key" not in settings.OPENAI_API_KEY
+        and settings.OPENAI_API_KEY != "mock-openai-key"
+    ):
         from langchain_openai import OpenAIEmbeddings
         from pydantic import SecretStr
 

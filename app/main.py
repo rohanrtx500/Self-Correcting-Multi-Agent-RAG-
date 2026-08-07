@@ -113,8 +113,7 @@ async def run_query(request: QueryRequest) -> QueryResponse:
         # Format document chunks for frontend inspector
         raw_docs = result.get("documents", [])
         retrieved_chunks = [
-            {"page_content": doc.page_content, "metadata": doc.metadata}
-            for doc in raw_docs
+            {"page_content": doc.page_content, "metadata": doc.metadata} for doc in raw_docs
         ]
 
         logger.info(f"Query processed successfully in {elapsed:.3f}s. Steps: {steps}")
@@ -177,13 +176,14 @@ async def ingest_document(request: IngestionRequest) -> IngestionResponse:
 
 
 @app.post("/upload", response_model=IngestionResponse, tags=["Document Ingestion"])
-async def upload_document(file: UploadFile = File(...)) -> IngestionResponse:
+async def upload_document(file: UploadFile = File(...)) -> IngestionResponse:  # noqa: B008
     """Uploads a file document, saves it locally, and ingests it into the vector database."""
     logger.info(f"Received file upload: {file.filename}")
     if not file.filename:
         raise HTTPException(status_code=400, detail="Uploaded file must have a valid filename.")
 
     import os
+
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in [".txt", ".md", ".pdf", ".json"]:
         raise HTTPException(

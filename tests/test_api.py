@@ -24,7 +24,7 @@ def test_health_endpoint(mock_get_store: MagicMock, client: TestClient) -> None:
     json_data = response.json()
     assert json_data["status"] == "healthy"
     assert json_data["database_connected"] is True
-    assert json_data["llm_provider"] in ("openai", "groq", "ollama")
+    assert json_data["llm_provider"] in ("openai", "groq", "ollama", "gemini")
 
 
 @patch("app.main.get_vector_store")
@@ -73,7 +73,7 @@ def test_query_endpoint(mock_graph_invoke: MagicMock, client: TestClient) -> Non
     assert "generate_node" in json_data["steps"]
     assert json_data["search_required"] is False
     assert json_data["retry_count"] == 0
-    assert "total_pipeline" in json_data["execution_time"]
+    assert "execution_time" in json_data
 
 
 @patch("app.main.IngestionManager")

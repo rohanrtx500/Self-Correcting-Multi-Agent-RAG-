@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: self_correcting_rag_api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist ChromaDB database data across container restarts
+      - chroma_db_volume:/app/chroma_db
+    env_file:
+      - .env
+    environment:
+      - CHROMA_PERSIST_DIRECTORY=/app/chroma_db
+    restart: always
+
+volumes:
+  chroma_db_volume:
+    name: chroma_db_volume

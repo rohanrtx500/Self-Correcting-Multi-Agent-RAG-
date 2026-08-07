@@ -142,14 +142,15 @@ async def ingest_document(request: IngestionRequest) -> IngestionResponse:
     """Ingests file or directory documents into the vector database."""
     logger.info(f"Received ingestion request for path: {request.path}")
 
+    import os
+
+    if not os.path.exists(request.path):
+        raise HTTPException(
+            status_code=400, detail=f"The specified path does not exist: {request.path}"
+        )
+
     try:
         manager = IngestionManager()
-        import os
-
-        if not os.path.exists(request.path):
-            raise HTTPException(
-                status_code=400, detail=f"The specified path does not exist: {request.path}"
-            )
 
         if os.path.isdir(request.path):
             count = manager.ingest_directory(

@@ -22,7 +22,7 @@ import {
   X,
   FileCode,
 } from "lucide-react";
-import { sendQuery, uploadDocument, QueryResponse } from "../../lib/api";
+import { sendQuery, uploadDocument, QueryResponse } from "@/lib/api";
 
 interface Message {
   role: "user" | "assistant";

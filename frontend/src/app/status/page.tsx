@@ -14,7 +14,7 @@ import {
   Gauge,
   Cpu,
 } from "lucide-react";
-import { checkHealth, getMetrics, HealthStatus, MetricsPayload } from "../../lib/api";
+import { checkHealth, getMetrics, HealthStatus, MetricsPayload } from "@/lib/api";
 
 export default function StatusPage() {
   const [health, setHealth] = useState<HealthStatus | null>(null);

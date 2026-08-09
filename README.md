@@ -2,6 +2,10 @@
 
 An enterprise-grade, production-ready Self-Correcting Retrieval-Augmented Generation (RAG) system utilizing **LangGraph** (StateGraph) to orchestrate an intelligent multi-agent workflow. 
 
+![Build Status](https://img.shields.io/badge/Vercel-Deployment-success?style=flat-square&logo=vercel)
+![Python](https://img.shields.io/badge/Python-3.12-blue?style=flat-square&logo=python)
+![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=nextdotjs)
+
 The system features dynamic query routing, concurrent context relevance grading, hallucination detection (Self-RAG), automated fallback to web search via Tavily, and structured agent outputs with source citations.
 
 ---

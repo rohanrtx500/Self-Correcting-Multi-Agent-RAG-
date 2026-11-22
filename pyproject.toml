@@ -64,5 +64,7 @@ module = [
     "chromadb.*",
     "langchain_chroma.*",
     "tavily.*",
+    "torch.*",
+    "pypdf.*",
 ]
 ignore_missing_imports = true

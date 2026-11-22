@@ -2,7 +2,7 @@ import asyncio
 import os
 import time
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
+from starlette.responses import Response
 
 from app.config import settings
 from app.graph.graph import get_graph
@@ -81,12 +82,14 @@ app = FastAPI(
 
 # Structured request correlation ID middleware
 @app.middleware("http")
-async def request_id_middleware(request: Request, call_next: object) -> JSONResponse:
+async def request_id_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     req_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]
     set_request_id(req_id)
-    response = await call_next(request)  # type: ignore[operator]
+    response = await call_next(request)
     response.headers["X-Request-ID"] = req_id
-    return response  # type: ignore[no-any-return]
+    return response
 
 
 # Global sanitized error handlers to prevent internal path/exception leaks

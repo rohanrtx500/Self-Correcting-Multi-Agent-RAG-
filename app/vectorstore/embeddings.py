@@ -53,13 +53,13 @@ def get_embeddings() -> Embeddings:
 
     # Free, high-performance local embeddings for Gemini or fallback
     try:
+        import importlib
         import os
 
-        import torch
-
+        torch_mod = importlib.import_module("torch")
         # Maximize CPU tensor parallelism across cores
         threads = min(8, os.cpu_count() or 4)
-        torch.set_num_threads(threads)
+        torch_mod.set_num_threads(threads)
     except Exception:
         pass
 

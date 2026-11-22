@@ -1,4 +1,5 @@
 import contextvars
+from typing import Any
 
 from loguru import logger
 from rich.logging import RichHandler
@@ -26,12 +27,12 @@ def setup_logger(log_level: str = "INFO") -> None:
     # Remove default handler
     logger.remove()
 
-    def request_id_patcher(record: dict) -> None:
+    def request_id_patcher(record: Any) -> None:
         record["extra"]["request_id"] = request_id_ctx.get()
 
-    logger.configure(patcher=request_id_patcher)  # type: ignore[arg-type]
+    logger.configure(patcher=request_id_patcher)
 
-    def log_format(record: dict) -> str:
+    def log_format(record: Any) -> str:
         req_id = record["extra"].get("request_id") or request_id_ctx.get()
         return f"[dim]{req_id}[/] [bold cyan]•[/] {{message}}\n"
 
@@ -44,7 +45,7 @@ def setup_logger(log_level: str = "INFO") -> None:
             show_level=True,
             show_path=False,
         ),
-        format=log_format,  # type: ignore[arg-type]
+        format=log_format,
         level=log_level,
         backtrace=True,
         diagnose=False,  # Set diagnose=False in production to avoid leaking variables in tracebacks

@@ -4,11 +4,7 @@ from pathlib import Path
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_core.documents import Document
 
-# Attempt to load latest TextSplitter path, with fallback
-try:
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-except ImportError:
-    from langchain.text_splitter import RecursiveCharacterTextSplitter  # type: ignore[no-redef]
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 def _load_json_file(path: Path) -> list[Document]:

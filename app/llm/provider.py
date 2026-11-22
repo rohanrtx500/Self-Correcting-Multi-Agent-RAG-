@@ -41,10 +41,11 @@ def get_llm(temperature: float = 0.0) -> BaseChatModel:
                 ) from e
 
         # Supports local execution via Ollama
-        return ChatOllama(  # type: ignore[no-any-return]
+        ollama_client: BaseChatModel = ChatOllama(
             base_url=settings.OLLAMA_BASE_URL,
             model=settings.OLLAMA_MODEL,
             temperature=temperature,
         )
+        return ollama_client
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")

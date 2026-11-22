@@ -33,6 +33,14 @@ def set_env_variables() -> None:
     os.environ["CHROMA_COLLECTION_NAME"] = "test_collection"
 
 
+@pytest.fixture(autouse=True)
+def mock_global_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Globally mocks embeddings to isolate tests from network calls and GPU/model dependencies."""
+    mock_emb = MockEmbeddings()
+    monkeypatch.setattr("app.vectorstore.embeddings.get_embeddings", lambda: mock_emb)
+    monkeypatch.setattr("app.vectorstore.chroma.get_embeddings", lambda: mock_emb)
+
+
 @pytest.fixture
 def mock_embeddings() -> MockEmbeddings:
     """Fixture providing MockEmbeddings."""

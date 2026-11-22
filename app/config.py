@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     # Gemini Settings
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-1.5-flash"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
 
     # Ollama Settings
     OLLAMA_BASE_URL: str = "http://localhost:11434"
@@ -81,10 +81,12 @@ class Settings(BaseSettings):
         """Ensures a valid Google Gemini model identifier is configured."""
         if isinstance(v, str):
             model = v.strip()
-            if "3.5" in model or "3.6" in model or not model:
-                return "gemini-1.5-flash"
+            if not model or model in ("gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"):
+                return "gemini-2.5-flash"
+            if model.startswith("models/"):
+                model = model.replace("models/", "")
             return model
-        return "gemini-1.5-flash"
+        return "gemini-2.5-flash"
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

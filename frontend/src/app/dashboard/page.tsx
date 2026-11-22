@@ -21,6 +21,8 @@ import {
   CheckCircle2,
   X,
   FileCode,
+  Globe,
+  ExternalLink,
 } from "lucide-react";
 import { sendQuery, uploadDocument, QueryResponse } from "@/lib/api";
 
@@ -573,12 +575,26 @@ export default function DashboardPage() {
                       selectedResponse.sources.map((source, idx) => (
                         <div key={idx} className="p-4 rounded-xl border border-card-border bg-card/30 flex flex-col gap-2">
                           <div className="flex items-center justify-between border-b border-card-border pb-1.5">
-                            <span className="text-xs font-bold text-slate-200 flex items-center gap-1">
-                              <FileText className="w-3.5 h-3.5 text-accent" />
-                              {source}
-                            </span>
-                            <span className="text-[10px] font-mono bg-accent/15 text-accent px-1.5 py-0.5 rounded font-bold">
-                              Doc [{idx + 1}]
+                            {source.startsWith("http://") || source.startsWith("https://") ? (
+                              <a
+                                href={source}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs font-bold text-accent hover:underline flex items-center gap-1.5 truncate max-w-[280px]"
+                                title={source}
+                              >
+                                <Globe className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate">{source}</span>
+                                <ExternalLink className="w-3 h-3 shrink-0 opacity-70" />
+                              </a>
+                            ) : (
+                              <span className="text-xs font-bold text-slate-200 flex items-center gap-1 truncate max-w-[280px]" title={source}>
+                                <FileText className="w-3.5 h-3.5 text-accent shrink-0" />
+                                <span className="truncate">{source}</span>
+                              </span>
+                            )}
+                            <span className="text-[10px] font-mono bg-accent/15 text-accent px-1.5 py-0.5 rounded font-bold shrink-0">
+                              {source.startsWith("http") ? `Web [${idx + 1}]` : `Doc [${idx + 1}]`}
                             </span>
                           </div>
                           <p className="text-xs text-muted leading-relaxed font-mono">

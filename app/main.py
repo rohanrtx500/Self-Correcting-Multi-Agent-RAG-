@@ -190,6 +190,7 @@ async def run_query(request: QueryRequest) -> QueryResponse:
         search_required = result.get("search_required", False)
         retry_count = result.get("retry_count", 0)
         errors = result.get("errors", [])
+        web_results = result.get("web_results", [])
 
         # Format document chunks for frontend inspector
         raw_docs = result.get("documents", [])
@@ -208,6 +209,7 @@ async def run_query(request: QueryRequest) -> QueryResponse:
             search_required=search_required,
             retry_count=retry_count,
             retrieved_chunks=retrieved_chunks,
+            web_results=web_results,
             errors=errors,
         )
 

@@ -53,6 +53,10 @@ class QueryResponse(BaseModel):
         default_factory=list,
         description="Retrieved document chunks and metadata.",
     )
+    web_results: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Web search results from Tavily.",
+    )
     errors: list[str] = Field(default_factory=list, description="Any warnings or errors.")
 
 

@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 from loguru import logger
@@ -23,7 +24,9 @@ def web_search_node(state: AgentState) -> dict[str, Any]:
     question = state["question"]
     documents = list(state.get("documents") or [])
 
-    if not settings.TAVILY_API_KEY or "your-tavily-api-key" in settings.TAVILY_API_KEY:
+    api_key = settings.TAVILY_API_KEY or os.environ.get("TAVILY_API_KEY", "")
+
+    if not api_key or "your-tavily-api-key" in api_key:
         logger.info("TAVILY_API_KEY not configured. Skipping external web search fallback.")
         current_times = state.get("execution_time", {}).copy()
         current_times["web_search"] = 0.0
@@ -38,7 +41,7 @@ def web_search_node(state: AgentState) -> dict[str, Any]:
     try:
         with time_block() as timing:
             logger.info(f"Searching Web for query: '{question}'")
-            tavily_client = TavilyClient(api_key=settings.TAVILY_API_KEY)
+            tavily_client = TavilyClient(api_key=api_key)
 
             response = tavily_client.search(
                 query=question,

@@ -11,3 +11,5 @@ services:
         value: gemini
       - key: GEMINI_MODEL
         value: gemini-1.5-flash
+      - key: TAVILY_API_KEY
+        sync: false

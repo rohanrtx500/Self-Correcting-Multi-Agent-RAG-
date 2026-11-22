@@ -7,6 +7,7 @@ export interface QueryResponse {
   search_required: boolean;
   retry_count: number;
   retrieved_chunks?: Array<{ page_content: string; metadata?: Record<string, any> }>;
+  web_results?: Array<{ title?: string; url?: string; content?: string }>;
   errors: string[];
 }
 

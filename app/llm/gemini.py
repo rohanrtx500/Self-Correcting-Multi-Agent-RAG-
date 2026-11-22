@@ -1,3 +1,5 @@
+from typing import cast
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import SecretStr
 
@@ -21,21 +23,27 @@ def get_gemini_llm(temperature: float = 0.0) -> BaseChatModel:
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        return ChatGoogleGenerativeAI(
-            google_api_key=api_key_secret,
-            model=settings.GEMINI_MODEL,
-            temperature=temperature,
-            max_retries=settings.MAX_RETRIES,
-            timeout=settings.REQUEST_TIMEOUT_SECONDS,
+        return cast(
+            BaseChatModel,
+            ChatGoogleGenerativeAI(
+                google_api_key=api_key_secret,
+                model=settings.GEMINI_MODEL,
+                temperature=temperature,
+                max_retries=settings.MAX_RETRIES,
+                timeout=settings.REQUEST_TIMEOUT_SECONDS,
+            ),
         )
     except ImportError:
         from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(
-            api_key=api_key_secret,
-            model=settings.GEMINI_MODEL,
-            temperature=temperature,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            max_retries=settings.MAX_RETRIES,
-            timeout=settings.REQUEST_TIMEOUT_SECONDS,
+        return cast(
+            BaseChatModel,
+            ChatOpenAI(
+                api_key=api_key_secret,
+                model=settings.GEMINI_MODEL,
+                temperature=temperature,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                max_retries=settings.MAX_RETRIES,
+                timeout=settings.REQUEST_TIMEOUT_SECONDS,
+            ),
         )

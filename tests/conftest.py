@@ -12,6 +12,16 @@ project_root = str(Path(__file__).parent.parent)
 if project_root not in sys.path:
     sys.path.append(project_root)
 
+# Set testing environment variables before importing app modules
+os.environ["ENVIRONMENT"] = "development"
+os.environ["LLM_PROVIDER"] = "openai"
+os.environ["OPENAI_API_KEY"] = "mock-testing-key"
+os.environ["TAVILY_API_KEY"] = "mock-testing-key"
+os.environ["GEMINI_API_KEY"] = "mock-testing-key"
+os.environ["GROQ_API_KEY"] = "mock-testing-key"
+os.environ["CHROMA_PERSIST_DIRECTORY"] = "./test_chroma_db"
+os.environ["CHROMA_COLLECTION_NAME"] = "test_collection"
+
 
 # Custom Mock Embeddings class
 class MockEmbeddings(Embeddings):

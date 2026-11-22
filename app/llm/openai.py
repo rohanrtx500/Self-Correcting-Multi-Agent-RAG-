@@ -1,3 +1,5 @@
+import os
+
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
@@ -13,8 +15,9 @@ def get_openai_llm(temperature: float = 0.0) -> ChatOpenAI:
     Returns:
         An instance of ChatOpenAI configured with active settings.
     """
+    api_key = settings.OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY") or "mock-openai-key"
     return ChatOpenAI(
-        api_key=SecretStr(settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None,
+        api_key=SecretStr(api_key),
         model=settings.OPENAI_MODEL,
         temperature=temperature,
         timeout=settings.REQUEST_TIMEOUT_SECONDS,

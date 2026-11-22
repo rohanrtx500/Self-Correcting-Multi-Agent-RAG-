@@ -1,3 +1,5 @@
+import os
+
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
@@ -13,8 +15,9 @@ def get_groq_llm(temperature: float = 0.0) -> ChatOpenAI:
     Returns:
         An instance of ChatOpenAI pointing to Groq's endpoint.
     """
+    api_key = settings.GROQ_API_KEY or os.environ.get("GROQ_API_KEY") or "mock-groq-key"
     return ChatOpenAI(
-        api_key=SecretStr(settings.GROQ_API_KEY) if settings.GROQ_API_KEY else None,
+        api_key=SecretStr(api_key),
         model=settings.GROQ_MODEL,
         temperature=temperature,
         base_url="https://api.groq.com/openai/v1",

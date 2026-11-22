@@ -1,3 +1,5 @@
+from typing import cast
+
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from app.config import settings
@@ -41,11 +43,13 @@ def get_llm(temperature: float = 0.0) -> BaseChatModel:
                 ) from e
 
         # Supports local execution via Ollama
-        ollama_client: BaseChatModel = ChatOllama(
-            base_url=settings.OLLAMA_BASE_URL,
-            model=settings.OLLAMA_MODEL,
-            temperature=temperature,
+        return cast(
+            BaseChatModel,
+            ChatOllama(
+                base_url=settings.OLLAMA_BASE_URL,
+                model=settings.OLLAMA_MODEL,
+                temperature=temperature,
+            ),
         )
-        return ollama_client
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")

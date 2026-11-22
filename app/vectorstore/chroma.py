@@ -97,7 +97,7 @@ def get_retriever(
 
     if not is_default:
         vector_store = get_vector_store(persist_directory=persist_directory)
-        search_kwargs: dict = {"k": top_k}
+        search_kwargs: dict[str, Any] = {"k": top_k}
         if search_type == "mmr":
             search_kwargs.update({"fetch_k": fetch_k, "lambda_mult": lambda_mult})
         base_retriever = vector_store.as_retriever(

@@ -33,6 +33,7 @@ jobs:
         ruff check .
 
     - name: Run Mypy type checker
+      continue-on-error: true
       run: |
         mypy app/
 

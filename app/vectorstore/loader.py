@@ -11,6 +11,42 @@ except ImportError:
     from langchain.text_splitter import RecursiveCharacterTextSplitter  # type: ignore[no-redef]
 
 
+def _load_json_file(path: Path) -> list[Document]:
+    """Helper to parse and extract Documents from a JSON file."""
+    with open(path, encoding="utf-8") as f:
+        content = f.read().strip()
+        if not content:
+            return []
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Malformed JSON file: {e}") from e
+
+    documents: list[Document] = []
+    if isinstance(data, list):
+        for idx, item in enumerate(data):
+            if not item:
+                continue
+            content_val = (
+                item.get("text")
+                or item.get("content")
+                or (json.dumps(item) if not isinstance(item, str) else item)
+            )
+            if not str(content_val).strip():
+                continue
+            metadata = item.get("metadata") if isinstance(item, dict) else {}
+            metadata = metadata or {}
+            metadata.setdefault("source", f"{path}#item{idx}")
+            documents.append(Document(page_content=str(content_val), metadata=metadata))
+    elif isinstance(data, dict):
+        content_val = data.get("text") or data.get("content") or json.dumps(data)
+        if str(content_val).strip():
+            metadata = data.get("metadata") or {}
+            metadata.setdefault("source", str(path))
+            documents.append(Document(page_content=str(content_val), metadata=metadata))
+    return documents
+
+
 def load_file(file_path: str | Path) -> list[Document]:
     """Loads a document from the local filesystem based on its extension.
 
@@ -23,44 +59,58 @@ def load_file(file_path: str | Path) -> list[Document]:
         List of loaded Document objects.
 
     Raises:
-        ValueError: If file format is unsupported.
+        FileNotFoundError: If file does not exist.
+        ValueError: If file format is unsupported or file is empty/corrupt.
     """
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
 
+    # Check for empty file
+    if path.stat().st_size == 0:
+        return []
+
     suffix = path.suffix.lower()
 
     if suffix in (".txt", ".md"):
         txt_loader = TextLoader(str(path), encoding="utf-8")
-        return txt_loader.load()
+        docs = txt_loader.load()
+        return [doc for doc in docs if doc.page_content.strip()]
     elif suffix == ".pdf":
-        pdf_loader = PyPDFLoader(str(path))
-        return pdf_loader.load()
-    elif suffix == ".json":
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            pdf_loader = PyPDFLoader(str(path))
+            docs = pdf_loader.load()
+            return [doc for doc in docs if doc.page_content.strip()]
+        except Exception:
+            try:
+                import pypdf
 
-        documents = []
-        # JSON can contain direct key-value pairs or structured content list
-        if isinstance(data, list):
-            for idx, item in enumerate(data):
-                content = item.get("text") or item.get("content") or json.dumps(item)
-                metadata = item.get("metadata") or {}
-                metadata.setdefault("source", f"{path}#chunk{idx}")
-                documents.append(Document(page_content=str(content), metadata=metadata))
-        elif isinstance(data, dict):
-            content = data.get("text") or data.get("content") or json.dumps(data)
-            metadata = data.get("metadata") or {}
-            metadata.setdefault("source", str(path))
-            documents.append(Document(page_content=str(content), metadata=metadata))
-        return documents
+                reader = pypdf.PdfReader(str(path))
+                fallback_docs = []
+                for i, page in enumerate(reader.pages):
+                    page_text = page.extract_text() or ""
+                    if page_text.strip():
+                        fallback_docs.append(
+                            Document(
+                                page_content=page_text,
+                                metadata={"source": str(path), "page": i + 1},
+                            )
+                        )
+                return fallback_docs
+            except ImportError as ie:
+                raise ValueError(
+                    "PDF processing requires `pypdf`. Please run: pip install pypdf"
+                ) from ie
+    elif suffix == ".json":
+        return _load_json_file(path)
     else:
         raise ValueError(f"Unsupported file format: {suffix}")
 
 
 def split_documents(
-    documents: list[Document], chunk_size: int = 1000, chunk_overlap: int = 200
+    documents: list[Document],
+    chunk_size: int = 1000,
+    chunk_overlap: int = 200,
 ) -> list[Document]:
     """Splits loaded documents recursively into chunks.
 
@@ -72,6 +122,9 @@ def split_documents(
     Returns:
         A list of split/chunked Document objects.
     """
+    if not documents:
+        return []
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,

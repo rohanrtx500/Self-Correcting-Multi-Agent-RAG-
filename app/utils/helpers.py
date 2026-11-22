@@ -4,6 +4,32 @@ from typing import Any
 from langchain_core.documents import Document
 
 
+def extract_text_content(content: Any) -> str:
+    """Safely extracts clean string text from LangChain message content (str or list of blocks).
+
+    Handles multimodal models like Google Gemini that return content as a list of dicts.
+
+    Args:
+        content: Raw content from BaseMessage.content.
+
+    Returns:
+        Clean concatenated text string.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and "text" in block:
+                parts.append(str(block["text"]))
+            elif hasattr(block, "text"):
+                parts.append(str(block.text))
+        return "".join(parts)
+    return str(content)
+
+
 def format_documents_to_string(documents: Sequence[Document]) -> str:
     """Formats a sequence of Documents into a single structured string for LLM prompts.
 

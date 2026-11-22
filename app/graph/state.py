@@ -3,13 +3,14 @@ from typing import Any, TypedDict
 from langchain_core.documents import Document
 
 
-class AgentState(TypedDict):
+class AgentState(TypedDict, total=False):
     """The state representation of our self-correcting RAG workflow.
 
     Tracks data flow, decisions, timings, retries, and errors.
     """
 
     question: str
+    original_question: str
     documents: list[Document]
     retrieved_chunks: list[str]
     search_required: bool
@@ -20,6 +21,9 @@ class AgentState(TypedDict):
     metadata: dict[str, Any]
     execution_time: dict[str, float]
     retry_count: int
+    query_rewrite_count: int
+    grounding_reason: str
+    insufficient_evidence: bool
     sources: list[str]
     web_results: list[dict[str, Any]]
     errors: list[str]

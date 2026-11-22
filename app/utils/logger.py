@@ -1,15 +1,39 @@
+import contextvars
+
 from loguru import logger
 from rich.logging import RichHandler
 
+# Context variable for request correlation ID
+request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="system")
+
+
+def get_request_id() -> str:
+    """Retrieves current request ID from context."""
+    return request_id_ctx.get()
+
+
+def set_request_id(req_id: str) -> None:
+    """Sets current request ID in context."""
+    request_id_ctx.set(req_id)
+
 
 def setup_logger(log_level: str = "INFO") -> None:
-    """Configures Loguru logger to output formatted logs via RichHandler.
+    """Configures Loguru logger with structured formatting and request ID patcher.
 
     Args:
         log_level: The threshold logging level (e.g. INFO, DEBUG).
     """
     # Remove default handler
     logger.remove()
+
+    def request_id_patcher(record: dict) -> None:
+        record["extra"]["request_id"] = request_id_ctx.get()
+
+    logger.configure(patcher=request_id_patcher)  # type: ignore[arg-type]
+
+    def log_format(record: dict) -> str:
+        req_id = record["extra"].get("request_id") or request_id_ctx.get()
+        return f"[dim]{req_id}[/] [bold cyan]•[/] {{message}}\n"
 
     # Add custom Rich-based handler for stdout
     logger.add(
@@ -20,14 +44,13 @@ def setup_logger(log_level: str = "INFO") -> None:
             show_level=True,
             show_path=False,
         ),
-        format="[bold cyan]•[/] {message}",
+        format=log_format,  # type: ignore[arg-type]
         level=log_level,
         backtrace=True,
-        diagnose=True,
+        diagnose=False,  # Set diagnose=False in production to avoid leaking variables in tracebacks
     )
 
 
-# Helper function to print visually formatted node starts/ends
 def log_node_start(node_name: str) -> None:
     """Logs the start of a graph node execution with distinct styling.
 

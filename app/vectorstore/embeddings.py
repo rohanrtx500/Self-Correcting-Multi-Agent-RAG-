@@ -2,13 +2,23 @@ from langchain_core.embeddings import Embeddings
 
 from app.config import settings
 
+# Global cached embedding model singleton
+_cached_embeddings: Embeddings | None = None
+
 
 def get_embeddings() -> Embeddings:
     """Instantiates and returns the configured embedding model.
 
+    Uses a cached singleton to avoid reloading transformer weights on every call.
+
     Returns:
         An instance of LangChain Embeddings.
     """
+    global _cached_embeddings
+
+    if _cached_embeddings is not None:
+        return _cached_embeddings
+
     provider = settings.LLM_PROVIDER.lower()
 
     if provider == "ollama":
@@ -21,10 +31,11 @@ def get_embeddings() -> Embeddings:
                 raise ImportError(
                     "OllamaEmbeddings is not available. Please install langchain-community or langchain-ollama."
                 ) from e
-        return OllamaEmbeddings(
+        _cached_embeddings = OllamaEmbeddings(
             base_url=settings.OLLAMA_BASE_URL,
             model=settings.OLLAMA_MODEL,
         )
+        return _cached_embeddings
 
     if (
         provider == "openai"
@@ -35,19 +46,36 @@ def get_embeddings() -> Embeddings:
         from langchain_openai import OpenAIEmbeddings
         from pydantic import SecretStr
 
-        return OpenAIEmbeddings(
+        _cached_embeddings = OpenAIEmbeddings(
             api_key=SecretStr(settings.OPENAI_API_KEY),
         )
+        return _cached_embeddings
 
     # Free, high-performance local embeddings for Gemini or fallback
     try:
+        import os
+
+        import torch
+
+        # Maximize CPU tensor parallelism across cores
+        threads = min(8, os.cpu_count() or 4)
+        torch.set_num_threads(threads)
+    except Exception:
+        pass
+
+    try:
         from langchain_community.embeddings import HuggingFaceEmbeddings
 
-        return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        _cached_embeddings = HuggingFaceEmbeddings(
+            model_name="all-MiniLM-L6-v2",
+            encode_kwargs={"batch_size": 64},
+        )
+        return _cached_embeddings
     except Exception:
         from langchain_openai import OpenAIEmbeddings
         from pydantic import SecretStr
 
-        return OpenAIEmbeddings(
+        _cached_embeddings = OpenAIEmbeddings(
             api_key=SecretStr(settings.OPENAI_API_KEY),
         )
+        return _cached_embeddings

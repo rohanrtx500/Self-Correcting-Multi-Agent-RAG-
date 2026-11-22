@@ -35,7 +35,7 @@ def test_health_endpoint_db_failure(mock_get_store: MagicMock, client: TestClien
     response = client.get("/health")
     assert response.status_code == 200
     json_data = response.json()
-    assert json_data["status"] == "healthy"
+    assert json_data["status"] == "degraded"
     assert json_data["database_connected"] is False
 
 

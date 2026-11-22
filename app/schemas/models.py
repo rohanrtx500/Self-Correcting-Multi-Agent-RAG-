@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 
 # --- QUERY ENDPOINTS ---
@@ -9,7 +11,17 @@ class QueryRequest(BaseModel):
         ...,
         description="The question to be answered by the self-correcting RAG pipeline.",
         examples=["What are the architectural specifications for Project Helios?"],
+        min_length=1,
+        max_length=2000,
     )
+
+    @field_validator("question")
+    @classmethod
+    def validate_question(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("Question cannot be empty or whitespace only.")
+        return cleaned
 
 
 class QueryResponse(BaseModel):
@@ -37,7 +49,7 @@ class QueryResponse(BaseModel):
         ...,
         description="Number of retries triggered during hallucination grading loops.",
     )
-    retrieved_chunks: list[dict] = Field(
+    retrieved_chunks: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Retrieved document chunks and metadata.",
     )
@@ -51,16 +63,30 @@ class IngestionRequest(BaseModel):
     path: str = Field(
         ...,
         description="Absolute or relative file path or directory path to ingest.",
-        examples=["D:/Projects-Personal/self-correcting-multi-agent-rag/sample_documents/"],
+        examples=["sample_documents/company_policy.txt"],
+        min_length=1,
+        max_length=500,
     )
     chunk_size: int = Field(
         default=1000,
+        ge=100,
+        le=8000,
         description="Maximum length of characters per text segment chunk.",
     )
     chunk_overlap: int = Field(
         default=200,
+        ge=0,
+        le=2000,
         description="Character overlap size between consecutive chunks.",
     )
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("Path cannot be empty or whitespace only.")
+        return cleaned
 
 
 class IngestionResponse(BaseModel):
@@ -75,11 +101,19 @@ class IngestionResponse(BaseModel):
 class HealthStatus(BaseModel):
     """Health check response containing active providers and status."""
 
-    status: str = Field(..., description="API system health state. Typically 'healthy'.")
-    llm_provider: str = Field(..., description="Active LLM provider (OpenAI, Groq, Ollama).")
+    status: str = Field(
+        ..., description="API system health state: healthy, degraded, or unhealthy."
+    )
+    llm_provider: str = Field(
+        ..., description="Active LLM provider (OpenAI, Groq, Ollama, Gemini)."
+    )
     database_connected: bool = Field(
         ...,
         description="Indicates if Chroma database connection is functional.",
+    )
+    details: dict[str, str] = Field(
+        default_factory=dict,
+        description="Health diagnostics per subsystem.",
     )
 
 
@@ -91,4 +125,8 @@ class MetricsPayload(BaseModel):
     average_query_latency: float = Field(
         ...,
         description="Average execution duration of the query pipeline in seconds.",
+    )
+    error_count: int = Field(
+        default=0,
+        description="Total count of failed queries or runtime errors.",
     )

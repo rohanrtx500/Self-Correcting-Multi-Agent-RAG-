@@ -1,9 +1,14 @@
+import asyncio
+import os
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from loguru import logger
 
 from app.config import settings
@@ -16,7 +21,14 @@ from app.schemas.models import (
     QueryRequest,
     QueryResponse,
 )
-from app.utils.logger import setup_logger
+from app.utils.logger import get_request_id, set_request_id, setup_logger
+from app.utils.security import (
+    check_rate_limit,
+    sanitize_filename,
+    validate_and_canonicalize_path,
+    validate_file_content,
+    verify_api_key,
+)
 from app.vectorstore.chroma import get_vector_store
 from app.vectorstore.ingestion import IngestionManager
 
@@ -24,6 +36,7 @@ from app.vectorstore.ingestion import IngestionManager
 START_TIME = time.time()
 queries_processed = 0
 total_latency = 0.0
+error_count = 0
 
 
 @asynccontextmanager
@@ -32,15 +45,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 1. Initialize Loguru Rich Logging configurations
     setup_logger(settings.LOG_LEVEL)
     logger.info("Initializing Self-Correcting RAG API Service...")
+    logger.info(f"Active Environment: [bold cyan]{settings.ENVIRONMENT}[/]")
+    logger.info(f"Configured LLM Provider: [bold cyan]{settings.LLM_PROVIDER}[/]")
+    logger.info(f"Allowed Ingestion Directory: [bold cyan]{settings.ALLOWED_INGESTION_DIR}[/]")
 
-    # 2. Check Database connectivity
+    # Ensure required directories exist
+    os.makedirs(settings.ALLOWED_INGESTION_DIR, exist_ok=True)
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+
+    # 2. Check Database connectivity and pre-warm embedding model in memory
     try:
         store = get_vector_store()
-        # Ping collection count to verify it works
         count = store._collection.count()
         logger.info(f"Vector Database connected. Current collection count: {count}")
+
+        from app.vectorstore.embeddings import get_embeddings
+
+        embeddings = get_embeddings()
+        await asyncio.to_thread(embeddings.embed_query, "warmup")
+        logger.info("Embedding model pre-warmed in memory.")
     except Exception as e:
-        logger.error(f"Vector Database connection failure: {e}")
+        logger.error(f"Vector Database connection warning at startup: {e}")
 
     yield
     logger.info("Shutting down API Service...")
@@ -53,12 +78,50 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Enable CORS for local dashboards and cross-origin debugging
+
+# Structured request correlation ID middleware
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next: object) -> JSONResponse:
+    req_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]
+    set_request_id(req_id)
+    response = await call_next(request)  # type: ignore[operator]
+    response.headers["X-Request-ID"] = req_id
+    return response  # type: ignore[no-any-return]
+
+
+# Global sanitized error handlers to prevent internal path/exception leaks
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    req_id = get_request_id()
+    logger.warning(f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "request_id": req_id},
+        headers={"X-Request-ID": req_id},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    global error_count
+    error_count += 1
+    req_id = get_request_id()
+    logger.exception(
+        f"Unhandled server error on {request.method} {request.url.path} [Request ID: {req_id}]"
+    )
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "An internal server error occurred.", "request_id": req_id},
+        headers={"X-Request-ID": req_id},
+    )
+
+
+# Configure CORS using explicit trusted origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -66,18 +129,29 @@ app.add_middleware(
 graph = get_graph().compile()
 
 
-@app.post("/query", response_model=QueryResponse, tags=["RAG Query"])
+@app.post(
+    "/query",
+    response_model=QueryResponse,
+    tags=["RAG Query"],
+    dependencies=[Depends(check_rate_limit)],
+)
+@app.post(
+    "/api/v1/query",
+    response_model=QueryResponse,
+    tags=["RAG Query"],
+    dependencies=[Depends(check_rate_limit)],
+)
 async def run_query(request: QueryRequest) -> QueryResponse:
     """Executes the agentic self-correcting RAG workflow for a user question."""
-    global queries_processed, total_latency
+    global queries_processed, total_latency, error_count
     logger.info(f"Received query request: '{request.question}'")
 
     start_perf = time.perf_counter()
 
     try:
-        # Initialize default state inputs
         initial_state = {
             "question": request.question,
+            "original_question": request.question,
             "documents": [],
             "retrieved_chunks": [],
             "search_required": False,
@@ -88,12 +162,15 @@ async def run_query(request: QueryRequest) -> QueryResponse:
             "metadata": {},
             "execution_time": {},
             "retry_count": 0,
+            "query_rewrite_count": 0,
+            "grounding_reason": "",
+            "insufficient_evidence": False,
             "sources": [],
             "web_results": [],
             "errors": [],
         }
 
-        # Run State Graph (synchronously or asynchronously)
+        # Run State Graph
         result = await graph.ainvoke(initial_state)
 
         # Measure latency
@@ -130,38 +207,47 @@ async def run_query(request: QueryRequest) -> QueryResponse:
             errors=errors,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
+        error_count += 1
         logger.error(f"Error processing query: {e}")
         raise HTTPException(
-            status_code=500, detail=f"Pipeline execution encountered an error: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Pipeline execution encountered an error while processing the query.",
         ) from e
 
 
-@app.post("/ingest", response_model=IngestionResponse, tags=["Document Ingestion"])
+@app.post(
+    "/ingest",
+    response_model=IngestionResponse,
+    tags=["Document Ingestion"],
+    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
+)
 async def ingest_document(request: IngestionRequest) -> IngestionResponse:
-    """Ingests file or directory documents into the vector database."""
+    """Ingests file or directory documents from the allowed ingestion directory into the vector database."""
     logger.info(f"Received ingestion request for path: {request.path}")
 
-    import os
-
-    if not os.path.exists(request.path):
-        raise HTTPException(
-            status_code=400, detail=f"The specified path does not exist: {request.path}"
-        )
+    # Validate canonical path and ensure it stays within allowed boundary
+    target_path = validate_and_canonicalize_path(
+        request.path, allowed_base_dir=settings.ALLOWED_INGESTION_DIR
+    )
 
     try:
         manager = IngestionManager()
 
-        if os.path.isdir(request.path):
-            count = manager.ingest_directory(
-                dir_path=request.path,
+        if target_path.is_dir():
+            count = await asyncio.to_thread(
+                manager.ingest_directory,
+                dir_path=target_path,
                 chunk_size=request.chunk_size,
                 chunk_overlap=request.chunk_overlap,
             )
             msg = f"Directory ingestion completed. Added {count} chunks to the vector database."
         else:
-            count = manager.ingest_file(
-                file_path=request.path,
+            count = await asyncio.to_thread(
+                manager.ingest_file,
+                file_path=target_path,
                 chunk_size=request.chunk_size,
                 chunk_overlap=request.chunk_overlap,
             )
@@ -172,66 +258,120 @@ async def ingest_document(request: IngestionRequest) -> IngestionResponse:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Ingestion failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}") from e
-
-
-@app.post("/upload", response_model=IngestionResponse, tags=["Document Ingestion"])
-async def upload_document(file: UploadFile = File(...)) -> IngestionResponse:  # noqa: B008
-    """Uploads a file document, saves it locally, and ingests it into the vector database."""
-    logger.info(f"Received file upload: {file.filename}")
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Uploaded file must have a valid filename.")
-
-    import os
-
-    ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in [".txt", ".md", ".pdf", ".json"]:
+        logger.error(f"Ingestion failed for {request.path}: {e}")
         raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type '{ext}'. Supported file types: .pdf, .txt, .md, .json",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Document ingestion failed. Please verify file integrity and database availability.",
+        ) from e
+
+
+@app.post(
+    "/upload",
+    response_model=IngestionResponse,
+    tags=["Document Ingestion"],
+    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
+)
+@app.post(
+    "/api/v1/upload",
+    response_model=IngestionResponse,
+    tags=["Document Ingestion"],
+    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
+)
+async def upload_document(file: UploadFile = File(...)) -> IngestionResponse:  # noqa: B008
+    """Uploads a file document, validates content and size, saves it securely, and ingests it into ChromaDB."""
+    logger.info(f"Received file upload attempt: {file.filename}")
+
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file must have a valid filename.",
         )
 
-    upload_dir = os.path.join(settings.BASE_DIR, "uploaded_documents")
-    os.makedirs(upload_dir, exist_ok=True)
-    save_path = os.path.join(upload_dir, file.filename)
+    # 1. Sanitize filename and generate server-side unique name (prevents path traversal)
+    safe_filename = sanitize_filename(file.filename)
+    ext = Path(safe_filename).suffix.lower()
+
+    # 2. Stream read with bounded upload size limit to prevent memory exhaustion (DoS)
+    chunks: list[bytes] = []
+    total_bytes = 0
+    chunk_size = 65536  # 64 KB
+
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_bytes += len(chunk)
+        if total_bytes > settings.MAX_UPLOAD_SIZE_BYTES:
+            max_mb = settings.MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=f"File exceeds maximum allowed upload size of {max_mb}MB.",
+            )
+        chunks.append(chunk)
+
+    contents = b"".join(chunks)
+
+    # 3. Validate content types, magic headers, and text encodings
+    validate_file_content(contents, ext)
+
+    # 4. Save file to dedicated upload directory
+    upload_dir = Path(settings.UPLOAD_DIR)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    save_path = upload_dir / safe_filename
 
     try:
-        contents = await file.read()
         with open(save_path, "wb") as f:
             f.write(contents)
 
         manager = IngestionManager()
-        count = manager.ingest_file(save_path)
-        msg = f"File '{file.filename}' uploaded & ingested successfully. Added {count} chunks to vector DB."
+        count = await asyncio.to_thread(manager.ingest_file, save_path)
+        msg = f"File '{file.filename}' uploaded and ingested successfully. Added {count} chunks to vector DB."
         return IngestionResponse(success=True, message=msg, chunks_count=count)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to process upload '{file.filename}': {e}")
-        raise HTTPException(status_code=500, detail=f"Upload processing failed: {str(e)}") from e
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="File upload and ingestion failed.",
+        ) from e
 
 
 @app.get("/health", response_model=HealthStatus, tags=["Monitoring"])
+@app.get("/api/v1/health", response_model=HealthStatus, tags=["Monitoring"])
+@app.get("/api/v1/status", response_model=HealthStatus, tags=["Monitoring"])
 async def check_health() -> HealthStatus:
-    """Returns database connection and service health status."""
+    """Returns application health and subsystem dependency indicators."""
     db_connected = False
+    details: dict[str, str] = {
+        "api": "healthy",
+        "llm_provider": settings.LLM_PROVIDER,
+    }
+
     try:
         store = get_vector_store()
-        # Verify collection count queries are responsive
         store._collection.count()
         db_connected = True
+        details["database"] = "connected"
     except Exception as e:
         logger.warning(f"Health check DB connection check failed: {e}")
+        details["database"] = "disconnected"
+
+    # Distinguish overall application health from dependency status
+    overall_status = "healthy" if db_connected else "degraded"
 
     return HealthStatus(
-        status="healthy",
+        status=overall_status,
         llm_provider=settings.LLM_PROVIDER,
         database_connected=db_connected,
+        details=details,
     )
 
 
 @app.get("/metrics", response_model=MetricsPayload, tags=["Monitoring"])
+@app.get("/api/v1/metrics", response_model=MetricsPayload, tags=["Monitoring"])
 async def check_metrics() -> MetricsPayload:
-    """Retrieves operational latency and requests counts metrics."""
+    """Retrieves operational latency, requests counts, and error metrics."""
     uptime = time.time() - START_TIME
     avg_latency = (total_latency / queries_processed) if queries_processed > 0 else 0.0
 
@@ -239,4 +379,5 @@ async def check_metrics() -> MetricsPayload:
         uptime_seconds=uptime,
         queries_processed=queries_processed,
         average_query_latency=avg_latency,
+        error_count=error_count,
     )

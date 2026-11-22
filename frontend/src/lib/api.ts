@@ -29,6 +29,26 @@ export interface MetricsPayload {
   average_query_latency: number;
 }
 
+export interface DocumentItem {
+  title: string;
+  source: string;
+  chunk_count: number;
+  preview: string;
+}
+
+export interface KnowledgeBaseResponse {
+  total_chunks: number;
+  total_documents: number;
+  collection_name: string;
+  documents: DocumentItem[];
+}
+
+export interface DocumentDeleteResponse {
+  success: boolean;
+  message: string;
+  deleted_chunks: number;
+}
+
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 function wrapNetworkError(err: unknown, endpoint: string): never {
@@ -162,6 +182,47 @@ export async function getMetrics(): Promise<MetricsPayload> {
 
   if (!res.ok) {
     throw new Error(`Failed to fetch metrics: ${res.status}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Fetches the list of all documents and chunks in the Knowledge Base.
+ */
+export async function getKnowledgeBase(): Promise<KnowledgeBaseResponse> {
+  let res: Response;
+  try {
+    res = await fetch(`${BACKEND_URL}/api/v1/documents`, {
+      cache: "no-store",
+    });
+  } catch (err: unknown) {
+    wrapNetworkError(err, "/api/v1/documents");
+  }
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch knowledge base: ${res.status}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Deletes a document from the Knowledge Base by title or source.
+ */
+export async function deleteDocument(identifier: string): Promise<DocumentDeleteResponse> {
+  let res: Response;
+  try {
+    res = await fetch(`${BACKEND_URL}/api/v1/documents/${encodeURIComponent(identifier)}`, {
+      method: "DELETE",
+    });
+  } catch (err: unknown) {
+    wrapNetworkError(err, `/api/v1/documents/${identifier}`);
+  }
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to delete document: ${res.status}`);
   }
 
   return res.json();

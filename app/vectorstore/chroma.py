@@ -156,3 +156,10 @@ def get_retriever(
             _default_retriever = base_retriever
 
     return _default_retriever
+
+
+def reset_retriever() -> None:
+    """Resets cached retriever and BM25 index so they are refreshed from the vector store."""
+    global _default_retriever, _bm25_index
+    _default_retriever = None
+    _bm25_index = None

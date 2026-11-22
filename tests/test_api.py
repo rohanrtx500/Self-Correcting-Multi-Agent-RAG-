@@ -105,3 +105,49 @@ def test_ingest_endpoint_nonexistent_path(client: TestClient) -> None:
     response = client.post("/ingest", json=ingest_payload)
     assert response.status_code == 400
     assert "does not exist" in response.json()["detail"]
+
+
+@patch("app.main.get_vector_store")
+@patch("app.main.IngestionManager")
+def test_list_knowledge_base_documents(
+    mock_ingestion_class: MagicMock, mock_get_store: MagicMock, client: TestClient
+) -> None:
+    """Verifies listing knowledge base documents returns chunk metrics and titles."""
+    mock_manager = MagicMock()
+    mock_manager.list_documents.return_value = [
+        {
+            "title": "sample.pdf",
+            "source": "/path/sample.pdf",
+            "chunk_count": 3,
+            "preview": "Test content",
+        }
+    ]
+    mock_ingestion_class.return_value = mock_manager
+
+    mock_store = MagicMock()
+    mock_store._collection.count.return_value = 3
+    mock_store._collection.name = "multi_agent_rag_gemini"
+    mock_get_store.return_value = mock_store
+
+    response = client.get("/api/v1/documents")
+    assert response.status_code == 200
+    json_data = response.json()
+    assert json_data["total_chunks"] == 3
+    assert json_data["total_documents"] == 1
+    assert json_data["documents"][0]["title"] == "sample.pdf"
+
+
+@patch("app.main.IngestionManager")
+def test_delete_knowledge_base_document(
+    mock_ingestion_class: MagicMock, client: TestClient
+) -> None:
+    """Verifies deleting document returns deleted chunk counts."""
+    mock_manager = MagicMock()
+    mock_manager.delete_document.return_value = 3
+    mock_ingestion_class.return_value = mock_manager
+
+    response = client.delete("/api/v1/documents/sample.pdf")
+    assert response.status_code == 200
+    json_data = response.json()
+    assert json_data["success"] is True
+    assert json_data["deleted_chunks"] == 3

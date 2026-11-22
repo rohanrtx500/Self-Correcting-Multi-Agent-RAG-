@@ -134,3 +134,34 @@ class MetricsPayload(BaseModel):
         default=0,
         description="Total count of failed queries or runtime errors.",
     )
+
+
+# --- KNOWLEDGE BASE / DOCUMENT MODELS ---
+class DocumentItem(BaseModel):
+    """Metadata summary of an ingested document in the knowledge base."""
+
+    title: str = Field(..., description="Document filename or display title.")
+    source: str = Field(..., description="Source path or filename identifier.")
+    chunk_count: int = Field(..., description="Total chunks indexed for this document.")
+    preview: str = Field(default="", description="Snippet preview of the document content.")
+
+
+class KnowledgeBaseResponse(BaseModel):
+    """List of all documents stored in the vector database knowledge base."""
+
+    total_chunks: int = Field(..., description="Total chunks in the vector collection.")
+    total_documents: int = Field(
+        ..., description="Total unique documents in the vector collection."
+    )
+    collection_name: str = Field(..., description="Active vector collection name.")
+    documents: list[DocumentItem] = Field(
+        default_factory=list, description="List of unique documents indexed."
+    )
+
+
+class DocumentDeleteResponse(BaseModel):
+    """Response after deleting a document from the vector store."""
+
+    success: bool = Field(..., description="Whether the deletion succeeded.")
+    message: str = Field(..., description="Status message detailing how many chunks were deleted.")
+    deleted_chunks: int = Field(default=0, description="Number of chunks removed.")

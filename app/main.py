@@ -15,9 +15,12 @@ from starlette.responses import Response
 from app.config import settings
 from app.graph.graph import get_graph
 from app.schemas.models import (
+    DocumentDeleteResponse,
+    DocumentItem,
     HealthStatus,
     IngestionRequest,
     IngestionResponse,
+    KnowledgeBaseResponse,
     MetricsPayload,
     QueryRequest,
     QueryResponse,
@@ -387,3 +390,84 @@ async def check_metrics() -> MetricsPayload:
         average_query_latency=avg_latency,
         error_count=error_count,
     )
+
+
+@app.get(
+    "/documents",
+    response_model=KnowledgeBaseResponse,
+    tags=["Knowledge Base"],
+    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
+)
+@app.get(
+    "/api/v1/documents",
+    response_model=KnowledgeBaseResponse,
+    tags=["Knowledge Base"],
+    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
+)
+async def list_knowledge_base_documents() -> KnowledgeBaseResponse:
+    """Returns all unique documents and chunk statistics currently indexed in the vector database."""
+    try:
+        manager = IngestionManager()
+        raw_docs = await asyncio.to_thread(manager.list_documents)
+        store = get_vector_store()
+        total_chunks = store._collection.count() if hasattr(store, "_collection") else 0
+        collection_name = store._collection.name if hasattr(store, "_collection") else "unknown"
+
+        docs = [
+            DocumentItem(
+                title=d["title"],
+                source=d["source"],
+                chunk_count=d["chunk_count"],
+                preview=d.get("preview", ""),
+            )
+            for d in raw_docs
+        ]
+
+        return KnowledgeBaseResponse(
+            total_chunks=total_chunks,
+            total_documents=len(docs),
+            collection_name=collection_name,
+            documents=docs,
+        )
+    except Exception as e:
+        logger.error(f"Failed to list knowledge base documents: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not retrieve knowledge base documents: {str(e)}",
+        ) from e
+
+
+@app.delete(
+    "/documents/{doc_identifier:path}",
+    response_model=DocumentDeleteResponse,
+    tags=["Knowledge Base"],
+    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
+)
+@app.delete(
+    "/api/v1/documents/{doc_identifier:path}",
+    response_model=DocumentDeleteResponse,
+    tags=["Knowledge Base"],
+    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
+)
+async def delete_knowledge_base_document(doc_identifier: str) -> DocumentDeleteResponse:
+    """Deletes all chunks belonging to a document from the vector store."""
+    try:
+        manager = IngestionManager()
+        deleted_count = await asyncio.to_thread(manager.delete_document, doc_identifier)
+        if deleted_count == 0:
+            return DocumentDeleteResponse(
+                success=False,
+                message=f"No indexed chunks found matching '{doc_identifier}'.",
+                deleted_chunks=0,
+            )
+        return DocumentDeleteResponse(
+            success=True,
+            message=f"Successfully deleted {deleted_count} chunks for '{doc_identifier}'.",
+            deleted_chunks=deleted_count,
+        )
+    except Exception as e:
+        logger.error(f"Failed to delete document '{doc_identifier}': {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete document: {str(e)}",
+        ) from e

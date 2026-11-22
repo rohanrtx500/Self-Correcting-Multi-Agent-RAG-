@@ -23,8 +23,19 @@ import {
   FileCode,
   Globe,
   ExternalLink,
+  Database,
+  Search,
+  RefreshCw,
+  Layers,
 } from "lucide-react";
-import { sendQuery, uploadDocument, QueryResponse } from "@/lib/api";
+import {
+  sendQuery,
+  uploadDocument,
+  getKnowledgeBase,
+  deleteDocument,
+  QueryResponse,
+  KnowledgeBaseResponse,
+} from "@/lib/api";
 
 interface Message {
   role: "user" | "assistant";
@@ -55,6 +66,58 @@ export default function DashboardPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{ success: boolean; message: string; chunks_count?: number } | null>(null);
 
+  // Knowledge Base Explorer state
+  const [isKnowledgeBaseOpen, setIsKnowledgeBaseOpen] = useState(false);
+  const [knowledgeBaseData, setKnowledgeBaseData] = useState<KnowledgeBaseResponse | null>(null);
+  const [kbLoading, setKbLoading] = useState(false);
+  const [kbSearchQuery, setKbSearchQuery] = useState("");
+  const [deletingDocSource, setDeletingDocSource] = useState<string | null>(null);
+  const [kbMessage, setKbMessage] = useState<string | null>(null);
+
+  const fetchKB = async () => {
+    setKbLoading(true);
+    try {
+      const data = await getKnowledgeBase();
+      setKnowledgeBaseData(data);
+    } catch (err) {
+      console.error("Failed to load knowledge base:", err);
+    } finally {
+      setKbLoading(false);
+    }
+  };
+
+  const handleDeleteDocument = async (sourceOrTitle: string) => {
+    if (!confirm(`Are you sure you want to delete "${sourceOrTitle}" from the Knowledge Base?`)) {
+      return;
+    }
+    setDeletingDocSource(sourceOrTitle);
+    try {
+      const res = await deleteDocument(sourceOrTitle);
+      setKbMessage(res.message);
+      await fetchKB();
+      setTimeout(() => setKbMessage(null), 4000);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      alert(`Error deleting document: ${errMsg}`);
+    } finally {
+      setDeletingDocSource(null);
+    }
+  };
+
+  useEffect(() => {
+    fetchKB();
+  }, []);
+
+  const filteredDocuments = (knowledgeBaseData?.documents || []).filter((doc) => {
+    if (!kbSearchQuery.trim()) return true;
+    const q = kbSearchQuery.toLowerCase();
+    return (
+      doc.title.toLowerCase().includes(q) ||
+      doc.source.toLowerCase().includes(q) ||
+      doc.preview.toLowerCase().includes(q)
+    );
+  });
+
   const handleFileUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile || uploading) return;
@@ -70,6 +133,7 @@ export default function DashboardPage() {
         chunks_count: res.chunks_count,
       });
       setSelectedFile(null);
+      fetchKB();
     } catch (err: unknown) {
       console.error(err);
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -294,6 +358,22 @@ export default function DashboardPage() {
             <h1 className="text-sm font-bold tracking-tight text-slate-300">AI Knowledge Workspace</h1>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setIsKnowledgeBaseOpen(true);
+                fetchKB();
+              }}
+              className="text-xs px-3.5 py-1.5 rounded-lg border font-semibold flex items-center gap-1.5 transition-all bg-card/60 border-card-border hover:border-accent/40 text-slate-200 hover:text-white shadow-sm cursor-pointer active:scale-95"
+            >
+              <Database className="w-3.5 h-3.5 text-accent" />
+              <span>Knowledge Base</span>
+              {knowledgeBaseData && knowledgeBaseData.total_chunks > 0 && (
+                <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-accent/20 text-accent text-[10px] font-mono font-bold">
+                  {knowledgeBaseData.total_chunks}
+                </span>
+              )}
+            </button>
+
             <button
               onClick={() => {
                 setIsUploadModalOpen(true);
@@ -787,6 +867,172 @@ export default function DashboardPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Knowledge Base Explorer Modal */}
+      {isKnowledgeBaseOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn">
+          <div className="bg-card border border-card-border rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-card-border flex items-center justify-between bg-card/40 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-accent/15 border border-accent/30 text-accent">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                    Knowledge Base Explorer
+                    {knowledgeBaseData && (
+                      <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-accent/15 text-accent border border-accent/30">
+                        {knowledgeBaseData.total_documents} docs • {knowledgeBaseData.total_chunks} chunks
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-[11px] text-muted">
+                    Persistent vector collections indexed in ChromaDB ({knowledgeBaseData?.collection_name || "multi_agent_rag"})
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={fetchKB}
+                  disabled={kbLoading}
+                  title="Refresh knowledge base"
+                  className="p-1.5 rounded-lg border border-card-border hover:bg-card text-muted hover:text-slate-200 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${kbLoading ? "animate-spin text-accent" : ""}`} />
+                </button>
+                <button
+                  onClick={() => setIsKnowledgeBaseOpen(false)}
+                  className="p-1.5 rounded-lg border border-card-border hover:bg-card text-muted hover:text-slate-200 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Actions & Search */}
+            <div className="p-4 border-b border-card-border/60 bg-background/40 flex items-center gap-3 shrink-0">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Filter documents by title, keyword, or path..."
+                  value={kbSearchQuery}
+                  onChange={(e) => setKbSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-card-border bg-background focus:outline-none focus:border-accent/40 text-slate-200 placeholder:text-muted"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  setIsUploadModalOpen(true);
+                  setUploadStatus(null);
+                  setSelectedFile(null);
+                }}
+                className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-accent text-slate-950 hover:bg-accent/90 transition-all shadow-sm flex items-center gap-1.5 shrink-0 cursor-pointer active:scale-95"
+              >
+                <UploadCloud className="w-3.5 h-3.5" />
+                <span>Upload Document</span>
+              </button>
+            </div>
+
+            {/* Notification message */}
+            {kbMessage && (
+              <div className="mx-6 mt-3 p-2.5 rounded-lg border border-success/30 bg-success/10 text-xs text-success flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{kbMessage}</span>
+              </div>
+            )}
+
+            {/* Documents List */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-3">
+              {kbLoading && !knowledgeBaseData ? (
+                <div className="py-12 flex flex-col items-center justify-center text-muted gap-2">
+                  <RefreshCw className="w-6 h-6 animate-spin text-accent" />
+                  <span className="text-xs">Loading indexed documents...</span>
+                </div>
+              ) : filteredDocuments.length === 0 ? (
+                <div className="py-12 flex flex-col items-center justify-center text-center text-muted gap-3">
+                  <Database className="w-10 h-10 opacity-20 text-accent" />
+                  <div>
+                    <p className="text-xs font-semibold text-slate-300">
+                      {kbSearchQuery ? "No matching documents found." : "No documents in your Knowledge Base yet."}
+                    </p>
+                    <p className="text-[11px] text-muted mt-1 max-w-sm">
+                      Upload PDF, Markdown, or Text files to empower your Multi-Agent RAG with verified custom knowledge.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                filteredDocuments.map((doc, idx) => (
+                  <div
+                    key={idx}
+                    className="p-4 rounded-xl border border-card-border bg-card/20 hover:border-accent/30 transition-all flex flex-col gap-2 group"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <div className="p-2 rounded-lg bg-accent/10 border border-accent/20 text-accent shrink-0 mt-0.5">
+                          {doc.title.endsWith(".pdf") ? (
+                            <FileText className="w-4 h-4 text-rose-400" />
+                          ) : doc.title.endsWith(".md") ? (
+                            <FileCode className="w-4 h-4 text-sky-400" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-accent" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-xs font-bold text-slate-200 truncate">{doc.title}</h4>
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-accent/15 text-accent font-semibold border border-accent/25">
+                              {doc.chunk_count} {doc.chunk_count === 1 ? "chunk" : "chunks"}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-muted font-mono truncate mt-0.5" title={doc.source}>
+                            {doc.source}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleDeleteDocument(doc.source || doc.title)}
+                        disabled={deletingDocSource === (doc.source || doc.title)}
+                        title="Delete from knowledge base"
+                        className="p-2 rounded-lg border border-card-border hover:border-rose-500/40 text-muted hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0 cursor-pointer disabled:opacity-50"
+                      >
+                        {deletingDocSource === (doc.source || doc.title) ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                        ) : (
+                          <Trash2 className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+
+                    {doc.preview && (
+                      <div className="mt-1 p-2.5 rounded-lg bg-background/60 border border-card-border/50 text-[11px] text-slate-300 line-clamp-2 leading-relaxed font-sans">
+                        <span className="text-accent font-semibold mr-1.5 text-[10px] uppercase tracking-wider">Preview:</span>
+                        {doc.preview}...
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3 border-t border-card-border bg-card/40 flex items-center justify-between text-[11px] text-muted shrink-0">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-success inline-block"></span>
+                Storage: ChromaDB ({knowledgeBaseData?.total_chunks || 0} chunks)
+              </span>
+              <button
+                onClick={() => setIsKnowledgeBaseOpen(false)}
+                className="px-4 py-1.5 rounded-lg border border-card-border hover:bg-card text-slate-300 hover:text-white transition-colors cursor-pointer text-xs font-semibold"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

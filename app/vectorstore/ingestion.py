@@ -1,4 +1,6 @@
 import hashlib
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +36,12 @@ def compute_content_hash(text: str) -> str:
 
 # Global in-memory cache for indexed hashes to eliminate repeated disk deserialization
 _global_indexed_hashes: set[str] | None = None
+
+
+def reset_indexed_hashes() -> None:
+    """Resets the cached indexed hashes so they are reloaded from ChromaDB."""
+    global _global_indexed_hashes
+    _global_indexed_hashes = None
 
 
 class IngestionManager:
@@ -193,3 +201,77 @@ class IngestionManager:
 
         logger.info(f"Directory ingestion completed. Total chunks added: {total_chunks}")
         return total_chunks
+
+    def list_documents(self) -> list[dict[str, Any]]:
+        """Lists all unique documents indexed in ChromaDB with chunk counts and previews."""
+        if not hasattr(self.vector_store, "_collection"):
+            return []
+
+        col = self.vector_store._collection
+        raw = col.get(include=["metadatas", "documents"])
+        metadatas = raw.get("metadatas") or []
+        documents = raw.get("documents") or []
+
+        docs_map: dict[str, dict[str, Any]] = {}
+        for i, meta in enumerate(metadatas):
+            if not meta or not isinstance(meta, dict):
+                continue
+            src = str(meta.get("source", "Unknown"))
+            title = str(meta.get("title", ""))
+            raw_title = (
+                os.path.basename(src) if src != "Unknown" and os.path.basename(src) else title
+            )
+            if not raw_title:
+                raw_title = f"Document_{i}"
+
+            clean_title = re.sub(r"^[0-9a-f]{12}_", "", raw_title)
+            doc_text = documents[i] if documents and i < len(documents) else ""
+            key = src if src != "Unknown" else clean_title
+
+            if key not in docs_map:
+                docs_map[key] = {
+                    "title": clean_title,
+                    "source": src,
+                    "chunk_count": 0,
+                    "preview": doc_text[:180].strip().replace("\n", " ") if doc_text else "",
+                }
+            docs_map[key]["chunk_count"] += 1
+
+        return list(docs_map.values())
+
+    def delete_document(self, source_or_title: str) -> int:
+        """Deletes all chunks associated with a source path or title from the vector store."""
+        if not hasattr(self.vector_store, "_collection"):
+            return 0
+
+        col = self.vector_store._collection
+        # 1. Query by exact source
+        res = col.get(where={"source": source_or_title})
+        ids_to_delete: list[str] = list(res.get("ids", [])) if res else []
+
+        # 2. If no IDs found, query by exact title
+        if not ids_to_delete:
+            res = col.get(where={"title": source_or_title})
+            ids_to_delete = list(res.get("ids", [])) if res else []
+
+        # 3. Fallback: match by substring in source or title
+        if not ids_to_delete:
+            all_items = col.get(include=["metadatas"])
+            all_ids = all_items.get("ids", []) or []
+            all_metas = all_items.get("metadatas", []) or []
+            for i, meta in enumerate(all_metas):
+                if meta and isinstance(meta, dict):
+                    m_src = str(meta.get("source", ""))
+                    m_title = str(meta.get("title", ""))
+                    if source_or_title in m_src or source_or_title in m_title:
+                        ids_to_delete.append(all_ids[i])
+
+        if ids_to_delete:
+            col.delete(ids=ids_to_delete)
+            reset_indexed_hashes()
+            from app.vectorstore.chroma import reset_retriever
+
+            reset_retriever()
+            logger.info(f"Deleted {len(ids_to_delete)} chunks for document '{source_or_title}'.")
+            return len(ids_to_delete)
+        return 0

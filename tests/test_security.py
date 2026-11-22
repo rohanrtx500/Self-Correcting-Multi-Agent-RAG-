@@ -157,3 +157,16 @@ def test_cors_headers(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
     assert response.headers.get("access-control-allow-credentials") == "true"
+
+    vercel_response = client.options(
+        "/query",
+        headers={
+            "Origin": "https://my-rag-app.vercel.app",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert vercel_response.status_code == 200
+    assert (
+        vercel_response.headers.get("access-control-allow-origin")
+        == "https://my-rag-app.vercel.app"
+    )

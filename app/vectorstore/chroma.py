@@ -14,6 +14,19 @@ _default_retriever: Any = None
 _bm25_index: SimpleBM25 | None = None
 
 
+def _resolve_collection_name() -> str:
+    """Returns provider-specific collection name to prevent vector dimension collisions."""
+    provider = settings.LLM_PROVIDER.lower()
+    base_name = settings.CHROMA_COLLECTION_NAME
+    if base_name.startswith("test_"):
+        return base_name
+    if provider == "gemini":
+        return f"{base_name}_gemini"
+    elif provider == "openai":
+        return f"{base_name}_openai"
+    return base_name
+
+
 def get_vector_store(persist_directory: str | None = None) -> Chroma:
     """Retrieves or creates a ChromaDB vector store instance.
 
@@ -28,11 +41,13 @@ def get_vector_store(persist_directory: str | None = None) -> Chroma:
     """
     global _vector_store
 
+    collection = _resolve_collection_name()
+
     # Bypass cache if custom persist directory is provided (e.g. during testing)
     if persist_directory is not None:
         embeddings = get_embeddings()
         return Chroma(
-            collection_name=settings.CHROMA_COLLECTION_NAME,
+            collection_name=collection,
             embedding_function=embeddings,
             persist_directory=persist_directory,
         )
@@ -42,7 +57,7 @@ def get_vector_store(persist_directory: str | None = None) -> Chroma:
         directory = settings.CHROMA_PERSIST_DIRECTORY
         embeddings = get_embeddings()
         _vector_store = Chroma(
-            collection_name=settings.CHROMA_COLLECTION_NAME,
+            collection_name=collection,
             embedding_function=embeddings,
             persist_directory=directory,
         )

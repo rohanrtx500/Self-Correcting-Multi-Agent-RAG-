@@ -79,6 +79,13 @@ def grade_generation_v_documents_and_question(state: AgentState) -> str:
     insufficient_evidence = state.get("insufficient_evidence", False)
     search_already_performed = state.get("search_required", False)
 
+    # Reaching max retries stops gracefully
+    if retry_count >= settings.MAX_RETRIES:
+        logger.error(
+            f"Reached max retry limit ({settings.MAX_RETRIES}). Stopping gracefully with current response."
+        )
+        return "end"
+
     # If generation lacks evidence and external web search has not been performed yet,
     # trigger corrective Web Search regardless of whether model explicitly abstained
     if insufficient_evidence and not search_already_performed:
@@ -89,16 +96,10 @@ def grade_generation_v_documents_and_question(state: AgentState) -> str:
 
     # Check for hallucination
     if hallucination == "Hallucinated":
-        if retry_count < settings.MAX_RETRIES:
-            logger.warning(
-                f"Generation contains unsupported claims! Regenerating answer (Retry #{retry_count + 1} of {settings.MAX_RETRIES})."
-            )
-            return "generate"
-        else:
-            logger.error(
-                f"Reached max retry limit ({settings.MAX_RETRIES}). Stopping gracefully with current response."
-            )
-            return "end"
+        logger.warning(
+            f"Generation contains unsupported claims! Regenerating answer (Retry #{retry_count + 1} of {settings.MAX_RETRIES})."
+        )
+        return "generate"
 
     # No hallucination found (grounded answer or honest abstention)
     logger.info("Generation verified as grounded in available evidence.")

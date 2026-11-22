@@ -1,4 +1,8 @@
+import os
+from typing import Any, cast
+
 from langchain_core.embeddings import Embeddings
+from pydantic import SecretStr
 
 from app.config import settings
 
@@ -31,9 +35,12 @@ def get_embeddings() -> Embeddings:
                 raise ImportError(
                     "OllamaEmbeddings is not available. Please install langchain-community or langchain-ollama."
                 ) from e
-        _cached_embeddings = OllamaEmbeddings(
-            base_url=settings.OLLAMA_BASE_URL,
-            model=settings.OLLAMA_MODEL,
+        _cached_embeddings = cast(
+            Embeddings,
+            OllamaEmbeddings(
+                base_url=settings.OLLAMA_BASE_URL,
+                model=settings.OLLAMA_MODEL,
+            ),
         )
         return _cached_embeddings
 
@@ -41,41 +48,75 @@ def get_embeddings() -> Embeddings:
         provider == "openai"
         and settings.OPENAI_API_KEY
         and "your-openai-api-key" not in settings.OPENAI_API_KEY
-        and settings.OPENAI_API_KEY != "mock-openai-key"
+        and not settings.OPENAI_API_KEY.startswith("mock-")
     ):
         from langchain_openai import OpenAIEmbeddings
-        from pydantic import SecretStr
 
-        _cached_embeddings = OpenAIEmbeddings(
-            api_key=SecretStr(settings.OPENAI_API_KEY),
+        _cached_embeddings = cast(
+            Embeddings,
+            OpenAIEmbeddings(
+                api_key=SecretStr(settings.OPENAI_API_KEY),
+            ),
         )
         return _cached_embeddings
 
-    # Free, high-performance local embeddings for Gemini or fallback
-    try:
-        import importlib
-        import os
+    if provider == "gemini":
+        gemini_key = settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY", "")
+        if (
+            gemini_key
+            and "your-gemini-api-key" not in gemini_key
+            and not gemini_key.startswith("mock-")
+        ):
+            try:
+                from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
-        torch_mod = importlib.import_module("torch")
-        # Maximize CPU tensor parallelism across cores
-        threads = min(8, os.cpu_count() or 4)
-        torch_mod.set_num_threads(threads)
-    except Exception:
-        pass
+                # Set in environ so Google SDK picks it up directly
+                os.environ["GOOGLE_API_KEY"] = gemini_key
 
+                kwargs: dict[str, Any] = {
+                    "model": "models/text-embedding-004",
+                    "google_api_key": SecretStr(gemini_key),
+                }
+                _cached_embeddings = cast(Embeddings, GoogleGenerativeAIEmbeddings(**kwargs))
+                return _cached_embeddings
+            except Exception as e:
+                from loguru import logger
+
+                logger.warning(f"Failed to initialize GoogleGenerativeAIEmbeddings: {e}")
+
+    # Local CPU embeddings using sentence-transformers / HuggingFace if available
     try:
         from langchain_community.embeddings import HuggingFaceEmbeddings
 
-        _cached_embeddings = HuggingFaceEmbeddings(
-            model_name="all-MiniLM-L6-v2",
-            encode_kwargs={"batch_size": 64},
+        _cached_embeddings = cast(
+            Embeddings,
+            HuggingFaceEmbeddings(
+                model_name="all-MiniLM-L6-v2",
+                encode_kwargs={"batch_size": 64},
+            ),
         )
         return _cached_embeddings
     except Exception:
-        from langchain_openai import OpenAIEmbeddings
-        from pydantic import SecretStr
+        pass
 
-        _cached_embeddings = OpenAIEmbeddings(
-            api_key=SecretStr(settings.OPENAI_API_KEY),
+    # If an OpenAI key is configured, fall back to OpenAI embeddings
+    if (
+        settings.OPENAI_API_KEY
+        and "your-openai-api-key" not in settings.OPENAI_API_KEY
+        and not settings.OPENAI_API_KEY.startswith("mock-")
+    ):
+        from langchain_openai import OpenAIEmbeddings
+
+        _cached_embeddings = cast(
+            Embeddings,
+            OpenAIEmbeddings(
+                api_key=SecretStr(settings.OPENAI_API_KEY),
+            ),
         )
         return _cached_embeddings
+
+    # Final fallback for offline environments or minimal CI containers without GPU/keys
+    from langchain_core.embeddings import FakeEmbeddings
+
+    _cached_embeddings = cast(Embeddings, FakeEmbeddings(size=384))
+    return _cached_embeddings

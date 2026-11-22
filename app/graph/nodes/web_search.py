@@ -30,7 +30,7 @@ def web_search_node(state: AgentState) -> dict[str, Any]:
         return {
             "documents": documents,
             "web_results": [],
-            "search_required": False,
+            "search_required": True,
             "execution_time": current_times,
             "steps": state.get("steps", []) + ["web_search_skipped"],
         }
@@ -72,6 +72,7 @@ def web_search_node(state: AgentState) -> dict[str, Any]:
         current_times = state.get("execution_time", {}).copy()
         current_times["web_search"] = 0.0
         return {
+            "search_required": True,
             "execution_time": current_times,
             "errors": current_errors,
             "steps": state.get("steps", []) + ["web_search_node_failed"],

@@ -218,7 +218,7 @@ async def run_query(request: QueryRequest) -> QueryResponse:
         logger.error(f"Error processing query: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Pipeline execution encountered an error while processing the query.",
+            detail=f"Pipeline execution encountered an error: {str(e)}",
         ) from e
 
 
@@ -265,7 +265,7 @@ async def ingest_document(request: IngestionRequest) -> IngestionResponse:
         logger.error(f"Ingestion failed for {request.path}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Document ingestion failed. Please verify file integrity and database availability.",
+            detail=f"Document ingestion failed: {str(e)}",
         ) from e
 
 
@@ -337,7 +337,7 @@ async def upload_document(file: UploadFile = File(...)) -> IngestionResponse:  #
         logger.error(f"Failed to process upload '{file.filename}': {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="File upload and ingestion failed.",
+            detail=f"File upload and ingestion failed: {str(e)}",
         ) from e
 
 
